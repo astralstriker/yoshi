@@ -1,0 +1,14 @@
+targets:
+  $default:
+    builders:
+      yoshi_generator|yoshi:
+        enabled: true
+
+builders:
+  yoshi_generator:
+    import: "package:yoshi_generator/yoshi_generator.dart"
+    builder_factories: ["yoshiGeneratorFactory"]
+    build_extensions: {".dart": [".yoshi.g.part"]}
+    auto_apply: dependents
+    build_to: cache
+    applies_builders: ["source_gen|combining_builder"]
