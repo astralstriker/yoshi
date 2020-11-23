@@ -1,14 +1,13 @@
 import 'package:analyzer/dart/element/element.dart';
-import 'package:analyzer/dart/element/type.dart';
-import 'package:build/src/builder/build_step.dart';
 import 'package:build/build.dart';
-import 'package:yoshi/yoshi.dart' hide Constructor;
-import 'package:yoshi_generator/src/annotations_processor.dart';
-import 'package:yoshi_generator/src/type_helper.dart';
-import 'package:path/path.dart' as path;
-import 'package:source_gen/source_gen.dart';
+import 'package:build/src/builder/build_step.dart';
 import 'package:code_builder/code_builder.dart';
 import 'package:dart_style/dart_style.dart';
+import 'package:path/path.dart' as path;
+import 'package:source_gen/source_gen.dart';
+import 'package:yoshi/yoshi.dart';
+import 'package:yoshi_generator/src/annotations_processor.dart';
+import 'package:yoshi_generator/src/type_helper.dart';
 
 Builder yoshiGeneratorFactoryBuilder() => SharedPartBuilder(
       [YoshiGenerator()],
@@ -86,11 +85,6 @@ Method _parseMethod(MethodElement element) => Method((b) => b
 
 Code _parseBody(MethodElement element) {
   final _methodAnnotation = _annotationsProcessor.getMethodAnnotations(element);
-  final paramSources = element.parameters
-      .map(_annotationsProcessor.getParameterAnnotations)
-      .map((reader) => reader.isEmpty ? null : reader.first?.revive()?.source);
-
-  print(paramSources);
 
   Type methodType = _annotationsProcessor.getMethodType(element);
 
@@ -136,11 +130,16 @@ Code _parseBody(MethodElement element) {
     url += '?$queryString';
   }
 
-  if (bodyParams.length > 1) {}
+  if (bodyParams.length > 1) {
+    throw InvalidGenerationSourceError('Only one body param is allowed.');
+  }
   final bodyParam = bodyParams.isEmpty ? null : bodyParams?.first?.element;
-  if (bodyParam != null &&
+
+  bool shouldGenerateBody = bodyParam != null;
+  bool bodyNeedsDeserialization = shouldGenerateBody &&
       !bodyParam.type.isDartCoreMap &&
-      !bodyParam.type.isDartCoreString) {
+      !bodyParam.type.isDartCoreString;
+  if (bodyNeedsDeserialization) {
     final ClassElement bodyClassElement = bodyParam.type.element;
 
     final toJsonElement =
@@ -156,11 +155,6 @@ Code _parseBody(MethodElement element) {
   final sb = StringBuffer();
 
   final _typeArgs = typeArgs(element.returnType);
-
-  if (_typeArgs.length > 4) {
-    throw InvalidGenerationSourceError(
-        "Only upto 4 levels of depth in the return type of a call is supported.. \ne.g., Future<Call<List<List<T>>>> is not supported");
-  }
 
   final bool doesReturnCall =
       callTypeChecker.isAssignableFromType(_typeArgs.elementAt(1));
@@ -186,8 +180,11 @@ Code _parseBody(MethodElement element) {
           'static method fromJson to convert map data into ${type.element.name} object');
     }
   }
-
+  var _postBody = (methodType == Post && shouldGenerateBody)
+      ? ", body: ${bodyNeedsDeserialization ? "${bodyParams.elementAt(0).element.name}.toJson()" : "${bodyParams.elementAt(0).element.name}"} "
+      : "";
   if (coreIterableTypeChecker.isAssignableFromType(_retType)) {
+
     var data = '(json.decode(res.body) as List)';
 
     if (!type.isDynamic) {
@@ -201,88 +198,45 @@ Code _parseBody(MethodElement element) {
     }
 
     sb.write('''
-final res = await _client.$method(\'$url\');
-return ${_typeArgs.elementAt(1)}(
-    data: $data,
+final res = await _client.$method(\'$url\'$_postBody);
+
+return ${_typeArgs.elementAt(1).name}(
+    data: res.statusCode == 200 ? $data : null,
+    statusCode: res.statusCode,
+    reasonPhrase: res.reasonPhrase,
+    headers: HttpHeaders.fromMap(res.headers),
+  );
+''');
+  } else if (coreMapTypeChecker.isAssignableFromType(_retType)) {
+    var data = '(json.decode(res.body) as Map)';
+
+    sb.write('''
+final res = await _client.$method(\'$url\'$_postBody);
+return ${_typeArgs.elementAt(1).name}(
+    data: res.statusCode == 200 ? $data : null,
     statusCode: res.statusCode,
     reasonPhrase: res.reasonPhrase,
     headers: HttpHeaders.fromMap(res.headers),
   );
 ''');
   } else {
+    if (_typeArgs.length > 4) {
+      throw InvalidGenerationSourceError(
+          "Only upto 4 levels of depth in the return type of a call is supported.. \ne.g., Future<Call<List<List<T>>>> is not supported");
+    }
     var data = 'json.decode(res.body)';
-    if (!type.isDynamic) data = '$type.fromJson($data)';
+    if (!type.isDynamic) data = '${type.name}.fromJson($data)';
 
     sb.write('''
-final res = await _client.$method(\'$url\');
-return ${_typeArgs.elementAt(1)}(
-    data: $data,
+final res = await _client.$method(\'$url\'$_postBody);
+return ${_typeArgs.elementAt(1).name}(
+    data: res.statusCode == 200 ? $data : null,
     statusCode: res.statusCode,
     reasonPhrase: res.reasonPhrase,
     headers: HttpHeaders.fromMap(res.headers),
   );
 ''');
   }
-
-  // if (coreIterableTypeChecker.isAssignableFromType(_retType)) {
-  //   sb.write('return (await _client.$method(\'$url\') as List)');
-
-  //   if (needDeserialization) {
-  //     sb.write('.map((m) => $type.fromJson(m)).toList();');
-  //   } else {
-  //     sb.write(';');
-  //   }
-  // } else {
-  //   if (_retType.isDartCoreString || _retType.isDynamic || _retType.isObject) {
-  //     sb.write(' return await _client.$method(\'$url\');');
-  //   } else {
-  //     if (needDeserialization) {
-  //       if (method == "post" && bodyParam != null) {
-  //         final body = needsSerialization(bodyParam.type)
-  //             ? "json.encode(${bodyParam.displayName}${bodyParam.type.isDartCoreMap ? "" : ".toJson()"})"
-  //             : "${bodyParam.displayName}";
-  //         sb.write(
-  //             'return $type.fromJson(await _client.$method(\'$url\', body: $body) as Map);');
-  //       } else {
-  //         sb.write('''
-  //         final res = await _client.$method(\'$url\');
-  //         return Call(
-  //             data: json.decode(res.body),
-  //             statusCode: res.statusCode,
-  //             reasonPhrase: res.reasonPhrase,
-  //             headers: HttpHeaders.fromMap(res.headers),
-  //           );
-  //         ''');
-  //       }
-  //     } else {
-  //       if (method == "post" && bodyParam != null) {
-  //         final body = needsSerialization(bodyParam.type)
-  //             ? "json.encode(${bodyParam.displayName}${bodyParam.type.isDartCoreMap ? "" : ".toJson()"})"
-  //             : "${bodyParam.displayName}";
-  //         sb.write('''
-  //         final res = await _client.$method(\'$url\', body: $body);
-  //         return Call(
-  //             data: json.decode(res.body),
-  //             statusCode: res.statusCode,
-  //             reasonPhrase: res.reasonPhrase,
-  //             headers: HttpHeaders.fromMap(res.headers),
-  //           );
-  //         ''');
-  //       } else {
-  //         sb.write('''
-  //         final res = await _client.$method(\'$url\');
-  //         return Call(
-  //             data: json.decode(res.body),
-  //             statusCode: res.statusCode,
-  //             reasonPhrase: res.reasonPhrase,
-  //             headers: HttpHeaders.fromMap(res.headers),
-  //           );
-  //         ''');
-  //       }
-  //     }
-  // }
-  // }
-
   return Code(sb.toString());
 }
 

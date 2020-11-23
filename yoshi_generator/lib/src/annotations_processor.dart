@@ -42,7 +42,7 @@ class AnnotationsProcessor {
       final a = _typeChecker(type).firstAnnotationOfExact(param);
       if (annot != null && a != null) {
         throw Exception(
-            "Too many $type annotations for '${element.displayName}");
+            "Too many $type annotations for '${element.getDisplayString(withNullability: false)}");
       } else if (annot == null && a != null) {
         annot = a;
         parameter = param;

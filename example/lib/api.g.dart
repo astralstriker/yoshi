@@ -22,7 +22,7 @@ mixin _$Api implements Api {
   @override
   Future<Call> postsByUserId(String userId) async {
     final res = await _client.get('${_client.baseUrl}/posts?userId=$userId');
-    return Call<dynamic>(
+    return Call(
       data: json.decode(res.body),
       statusCode: res.statusCode,
       reasonPhrase: res.reasonPhrase,

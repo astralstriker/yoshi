@@ -1,5 +1,4 @@
 import 'package:analyzer/dart/element/type.dart';
-import 'package:analyzer/dart/element/element.dart';
 import 'package:source_gen/source_gen.dart';
 import 'package:yoshi/yoshi.dart';
 
@@ -17,7 +16,7 @@ List<DartType> typeArgumentsOf(DartType type, TypeChecker checker) {
 
 bool needsDeserialization(DartType type) {
   return !type.isDynamic &&
-      !type.isObject &&
+      !type.isDartCoreObject &&
       !type.isDartCoreString &&
       !type.isDartCoreMap &&
       !type.isDartCoreInt &&
