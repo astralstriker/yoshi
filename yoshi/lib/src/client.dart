@@ -47,8 +47,10 @@ class YoshiClient extends BaseClient {
   @override
   Future<Response> post(url,
       {Map<String, String> headers, body, Encoding encoding}) async {
-    final response =
-        await super.post(url, headers: headers, body: body, encoding: encoding);
+    final response = await super.post(url,
+        headers: headers,
+        body: body is String ? body : json.encode(body),
+        encoding: encoding);
     _interceptResponse(response);
     return response;
   }
@@ -63,8 +65,10 @@ class YoshiClient extends BaseClient {
   @override
   Future<Response> put(url,
       {Map<String, String> headers, body, Encoding encoding}) async {
-    final response =
-        await super.put(url, headers: headers, body: body, encoding: encoding);
+    final response = await super.put(url,
+        headers: headers,
+        body: body is String ? body : json.encode(body),
+        encoding: encoding);
     _interceptResponse(response);
     return response;
   }
